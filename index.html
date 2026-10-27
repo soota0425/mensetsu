@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>面接練習 動作テスト</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  :root { --bg:#f4f5f7; --card:#fff; --ink:#222; --sub:#666; --q:#e8eefc; --a:#e6f5ea; --sys:#fff6e0; --accent:#2f5bd3; --warn:#d33; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:"Hiragino Sans","Noto Sans JP",sans-serif; }
+  header { padding:10px 16px; background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  header h1 { font-size:16px; margin:0; }
+  #userBox { font-size:14px; }
+  .wrap { max-width:960px; margin:0 auto; padding:16px; display:grid; grid-template-columns:320px 1fr; gap:16px; }
+  @media (max-width:760px){ .wrap { grid-template-columns:1fr; } }
+  .panel { background:var(--card); border-radius:12px; padding:12px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  video { width:100%; aspect-ratio:4/3; background:#222; border-radius:8px; transform:scaleX(-1); object-fit:cover; }
+  .camnote { font-size:12px; color:var(--sub); margin-top:6px; }
+  #timer { font-size:40px; font-weight:bold; text-align:center; margin:12px 0 4px; font-variant-numeric:tabular-nums; }
+  #timer.over { color:var(--warn); }
+  #timerLabel { text-align:center; font-size:13px; color:var(--sub); min-height:1.2em; }
+  #login { text-align:center; padding:24px 8px; }
+  #login p { color:var(--sub); font-size:14px; }
+  #gbtn { display:inline-block; }
+  #chat { height:360px; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding:4px; }
+  .msg { padding:10px 12px; border-radius:12px; max-width:85%; line-height:1.6; white-space:pre-wrap; }
+  .q { background:var(--q); align-self:flex-start; }
+  .a { background:var(--a); align-self:flex-end; }
+  .sys { background:var(--sys); align-self:center; font-size:13px; max-width:100%; }
+  #live { min-height:3em; margin-top:8px; padding:8px; border:1px dashed #bbb; border-radius:8px; color:var(--sub); }
+  .btns { display:flex; gap:8px; margin-top:10px; }
+  button { flex:1; padding:12px; font-size:16px; border:none; border-radius:8px; cursor:pointer; background:var(--accent); color:#fff; }
+  button:disabled { background:#bbb; cursor:default; }
+  #endBtn { background:#444; }
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>面接練習ツール　動作テスト</h1>
+  <div id="userBox"></div>
+</header>
+
+<div class="wrap">
+  <div class="panel">
+    <video id="cam" autoplay playsinline muted></video>
+    <div class="camnote">映像は画面に表示するだけで、保存・送信はしません。</div>
+    <div id="timer">--</div>
+    <div id="timerLabel"></div>
+  </div>
+  <div class="panel">
+    <div id="login">
+      <p>学校の Google アカウントでログインしてください。</p>
+      <div id="gbtn"></div>
+    </div>
+    <div id="main" class="hidden">
+      <div id="chat"></div>
+      <div id="live">（話した内容がここに表示されます）</div>
+      <div class="btns">
+        <button id="startBtn">テストを始める</button>
+        <button id="endBtn" disabled>回答終了</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== 設定（2か所） =====
+const CLIENT_ID = 'ここにクライアントIDを貼り付け.apps.googleusercontent.com';
+const GAS_URL   = 'ここにApps ScriptのウェブアプリのURLを貼り付け';
+// ========================
+
+const LIMIT = 60;   // 目安の制限時間（秒）
+const MAX = 90;     // 最大時間（秒）
+const QUESTION = 'テストです。あなたの長所を教えてください。（60秒を目安に話してください）';
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const $ = id => document.getElementById(id);
+let idToken = null;
+let stream = null, rec = null, answering = false;
+let t0 = 0, firstSpeech = null, finalText = '', interim = '', timerId = null;
+let cameraStatus = '未確認';
+
+function addMsg(cls, text) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + cls;
+  d.textContent = text;
+  $('chat').appendChild(d);
+  $('chat').scrollTop = $('chat').scrollHeight;
+}
+
+/** Apps Script にデータを送る（text/plain で送るので追加の設定は不要） */
+async function api(action, data) {
+  const res = await fetch(GAS_URL, {
+    method: 'POST',
+    body: JSON.stringify({ action: action, idToken: idToken, data: data || null })
+  });
+  return res.json();
+}
+
+// ---------- Google ログイン ----------
+function initLogin() {
+  if (CLIENT_ID.startsWith('ここに') || GAS_URL.startsWith('ここに')) {
+    $('login').innerHTML = '<p>⚠ 設定が未入力です。index.html の CLIENT_ID と GAS_URL を入力してください。</p>';
+    return;
+  }
+  if (!(window.google && google.accounts && google.accounts.id)) { setTimeout(initLogin, 100); return; }
+  google.accounts.id.initialize({ client_id: CLIENT_ID, callback: onLogin });
+  google.accounts.id.renderButton($('gbtn'), { theme: 'outline', size: 'large', text: 'signin_with', locale: 'ja' });
+}
+
+async function onLogin(resp) {
+  idToken = resp.credential;
+  $('login').querySelector('p').textContent = 'ログインを確認しています…';
+  try {
+    const r = await api('whoami');
+    if (!r.ok) throw new Error(r.error);
+    $('userBox').textContent = r.name + '（' + r.email + '）';
+    $('login').classList.add('hidden');
+    $('main').classList.remove('hidden');
+    addMsg('sys', '✅ ログインと記録サーバーへの接続を確認しました。「テストを始める」を押してください。');
+  } catch (e) {
+    idToken = null;
+    $('login').querySelector('p').textContent = '⚠ ' + e.message;
+  }
+}
+
+window.addEventListener('load', initLogin);
+
+// ---------- カメラ・マイク ----------
+function permHint(name) {
+  if (name === 'NotAllowedError' || name === 'not-allowed' || name === 'service-not-allowed')
+    return '\n→ 使用が許可されていません。アドレスバー右のアイコンから許可するか、学校の管理設定で制限されている可能性があります。';
+  if (name === 'NotFoundError') return '\n→ カメラまたはマイクが見つかりません。';
+  if (name === 'NotReadableError') return '\n→ ほかのアプリがカメラ・マイクを使用中の可能性があります。';
+  return '';
+}
+
+async function setupDevices() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    $('cam').srcObject = stream;
+    cameraStatus = 'OK';
+    addMsg('sys', '✅ カメラ・マイクの使用許可が取れました。');
+    return true;
+  } catch (e) {
+    addMsg('sys', '⚠ カメラ・マイクの起動に失敗：' + e.name + permHint(e.name));
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      cameraStatus = '失敗(' + e.name + ')';
+      addMsg('sys', 'マイクのみで続行します。');
+      return true;
+    } catch (e2) {
+      cameraStatus = '失敗(' + e.name + ')';
+      addMsg('sys', '⚠ マイクも起動できません：' + e2.name + permHint(e2.name));
+      return false;
+    }
+  }
+}
+
+// ---------- 回答 ----------
+$('startBtn').onclick = async () => {
+  $('startBtn').disabled = true;
+  if (!SR) { addMsg('sys', '⚠ このブラウザは音声認識に対応していません（Chrome で開いてください）。'); return; }
+  if (!stream && !(await setupDevices())) { $('startBtn').disabled = false; return; }
+  addMsg('q', QUESTION);
+  beginAnswer();
+};
+
+$('endBtn').onclick = () => finishAnswer('ボタン');
+
+function beginAnswer() {
+  answering = true;
+  finalText = ''; interim = ''; firstSpeech = null;
+  $('live').textContent = '';
+  t0 = Date.now();
+  startRec();
+  timerId = setInterval(tick, 200);
+  $('endBtn').disabled = false;
+}
+
+function startRec() {
+  rec = new SR();
+  rec.lang = 'ja-JP';
+  rec.continuous = true;
+  rec.interimResults = true;
+  rec.onresult = e => {
+    if (firstSpeech === null) firstSpeech = Math.round((Date.now() - t0) / 100) / 10;
+    interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const r = e.results[i];
+      if (r.isFinal) finalText += r[0].transcript;
+      else interim += r[0].transcript;
+    }
+    $('live').textContent = finalText + interim;
+  };
+  rec.onerror = e => {
+    if (e.error === 'no-speech' || e.error === 'aborted') return;
+    addMsg('sys', '⚠ 音声認識エラー：' + e.error + permHint(e.error));
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') finishAnswer('エラー');
+  };
+  // 無音が続くと認識が自動で止まるので、回答中なら再開する
+  rec.onend = () => {
+    if (answering) {
+      finalText += interim; interim = '';
+      try { startRec(); } catch (_) {}
+    }
+  };
+  rec.start();
+}
+
+function tick() {
+  const el = (Date.now() - t0) / 1000;
+  const t = $('timer');
+  if (el < LIMIT) {
+    t.textContent = Math.ceil(LIMIT - el);
+    t.classList.remove('over');
+    $('timerLabel').textContent = firstSpeech === null ? '話し始めてください' : '回答中';
+  } else {
+    t.textContent = '+' + Math.floor(el - LIMIT);
+    t.classList.add('over');
+    $('timerLabel').textContent = '目安の時間を過ぎています（' + MAX + '秒で終了）';
+  }
+  if (el >= MAX) finishAnswer('時間切れ');
+}
+
+function finishAnswer(reason) {
+  if (!answering) return;
+  answering = false;
+  clearInterval(timerId);
+  $('endBtn').disabled = true;
+  const elapsed = Math.min(MAX, Math.round((Date.now() - t0) / 100) / 10);
+  try { rec.stop(); } catch (_) {}
+  // 最後の認識結果が届くのを少し待ってから投稿・記録
+  setTimeout(async () => {
+    const answer = (finalText + interim).trim();
+    addMsg('a', answer || '（音声が認識されませんでした）');
+    $('live').textContent = '';
+    $('timer').textContent = '--';
+    $('timer').classList.remove('over');
+    $('timerLabel').textContent = '';
+    const data = {
+      question: QUESTION, answer: answer, elapsed: elapsed,
+      over: Math.max(0, Math.round((elapsed - LIMIT) * 10) / 10),
+      firstSpeech: firstSpeech, chars: answer.length,
+      reason: reason, camera: cameraStatus, ua: navigator.userAgent
+    };
+    addMsg('sys', '記録中…');
+    try {
+      const r = await api('save', data);
+      if (!r.ok) throw new Error(r.error);
+      addMsg('sys', '✅ スプレッドシートに記録しました。もう一度試せます。');
+    } catch (e) {
+      addMsg('sys', '⚠ 記録に失敗：' + e.message);
+    }
+    $('startBtn').disabled = false;
+  }, 800);
+}
+</script>
+</body>
+</html>
