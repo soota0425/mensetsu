@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>面接練習 動作テスト</title>
+<title>面接練習ツール</title>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   :root { --bg:#f4f5f7; --card:#fff; --ink:#222; --sub:#666; --q:#e8eefc; --a:#e6f5ea; --sys:#fff6e0; --accent:#2f5bd3; --warn:#d33; }
@@ -12,54 +12,120 @@
   header { padding:10px 16px; background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
   header h1 { font-size:16px; margin:0; }
   #userBox { font-size:14px; }
-  .wrap { max-width:960px; margin:0 auto; padding:16px; display:grid; grid-template-columns:320px 1fr; gap:16px; }
+  .wrap { max-width:1000px; margin:0 auto; padding:16px; display:grid; grid-template-columns:320px 1fr; gap:16px; }
   @media (max-width:760px){ .wrap { grid-template-columns:1fr; } }
   .panel { background:var(--card); border-radius:12px; padding:12px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
   video { width:100%; aspect-ratio:4/3; background:#222; border-radius:8px; transform:scaleX(-1); object-fit:cover; }
   .camnote { font-size:12px; color:var(--sub); margin-top:6px; }
-  #timer { font-size:40px; font-weight:bold; text-align:center; margin:12px 0 4px; font-variant-numeric:tabular-nums; }
+  .meterWrap { display:flex; align-items:center; gap:8px; margin-top:8px; font-size:12px; color:var(--sub); }
+  .meter { flex:1; height:8px; background:#e3e5ea; border-radius:4px; overflow:hidden; }
+  #meterBar { height:100%; width:0; background:#3bb273; transition:width .08s; }
+  #timer { font-size:44px; font-weight:bold; text-align:center; margin:14px 0 2px; font-variant-numeric:tabular-nums; }
   #timer.over { color:var(--warn); }
   #timerLabel { text-align:center; font-size:13px; color:var(--sub); min-height:1.2em; }
+  #clock { text-align:center; margin-top:10px; font-size:15px; font-variant-numeric:tabular-nums; }
   #login { text-align:center; padding:24px 8px; }
   #login p { color:var(--sub); font-size:14px; }
   #gbtn { display:inline-block; }
-  #chat { height:360px; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding:4px; }
+  #setup h2 { font-size:18px; margin:4px 0 12px; }
+  #setup label { display:block; margin-bottom:12px; font-size:14px; }
+  #setup select { display:block; width:100%; margin-top:4px; padding:8px; font-size:16px; border:1px solid #ccc; border-radius:6px; background:#fff; }
+  .note { font-size:13px; color:var(--sub); line-height:1.6; margin:8px 0; }
+  .warnmsg { color:var(--warn); font-size:14px; min-height:1.2em; margin:8px 0; white-space:pre-wrap; }
+  #chat { height:420px; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding:4px; }
   .msg { padding:10px 12px; border-radius:12px; max-width:85%; line-height:1.6; white-space:pre-wrap; }
-  .q { background:var(--q); align-self:flex-start; }
+  .q { background:var(--q); align-self:flex-start; font-size:17px; }
   .a { background:var(--a); align-self:flex-end; }
   .sys { background:var(--sys); align-self:center; font-size:13px; max-width:100%; }
   #live { min-height:3em; margin-top:8px; padding:8px; border:1px dashed #bbb; border-radius:8px; color:var(--sub); }
   .btns { display:flex; gap:8px; margin-top:10px; }
   button { flex:1; padding:12px; font-size:16px; border:none; border-radius:8px; cursor:pointer; background:var(--accent); color:#fff; }
   button:disabled { background:#bbb; cursor:default; }
-  #endBtn { background:#444; }
+  .dark { background:#444; }
+  .ghost { background:#fff; color:var(--warn); border:1px solid var(--warn); }
   .hidden { display:none !important; }
+  /* 自分の記録 */
+  #history h2 { font-size:18px; margin:4px 0 12px; }
+  #histBody { max-height:560px; overflow-y:auto; padding:2px; }
+  .sesItem { border:1px solid #dde1e8; border-radius:10px; padding:10px 12px; margin-bottom:8px; cursor:pointer; background:#fff; }
+  .sesItem:hover { border-color:var(--accent); background:#f7f9ff; }
+  .sesItem .d { font-weight:bold; }
+  .sesItem .s { font-size:13px; color:var(--sub); margin-top:2px; }
+  .badge { display:inline-block; font-size:12px; padding:1px 8px; border-radius:10px; background:#fde9c8; color:#8a5a00; margin-left:6px; font-weight:normal; }
+  .tag { display:inline-block; font-size:12px; padding:0 6px; border-radius:4px; background:#dfe6fb; color:var(--accent); margin-right:6px; }
+  .qa { border:1px solid #e3e5ea; border-radius:10px; padding:12px; margin-bottom:12px; background:#fff; }
+  .qa .qq { font-weight:bold; line-height:1.6; }
+  .qa .aa { margin-top:8px; padding:8px 10px; background:var(--a); border-radius:8px; line-height:1.7; white-space:pre-wrap; }
+  .qa .mt { margin-top:6px; font-size:13px; color:var(--sub); }
+  .qa .mt .ov { color:var(--warn); font-weight:bold; }
+  .cmt { margin-top:8px; padding:8px 10px; background:#fff6e0; border-left:4px solid #e0a020; border-radius:6px; white-space:pre-wrap; line-height:1.6; }
+  .cmt b { display:block; font-size:12px; color:#8a5a00; margin-bottom:2px; }
+  .qa textarea { width:100%; min-height:64px; margin-top:8px; padding:8px; font-size:15px; border:1px solid #ccc; border-radius:6px; font-family:inherit; resize:vertical; }
+  .rfRow { display:flex; align-items:center; gap:8px; margin-top:6px; }
+  .rfRow button { flex:0 0 auto; padding:6px 16px; font-size:14px; }
+  .rfRow span { font-size:13px; color:var(--sub); }
 </style>
 </head>
 <body>
 <header>
-  <h1>面接練習ツール　動作テスト</h1>
+  <h1>面接練習ツール</h1>
   <div id="userBox"></div>
 </header>
 
 <div class="wrap">
+  <!-- 左：カメラとタイマー -->
   <div class="panel">
     <video id="cam" autoplay playsinline muted></video>
     <div class="camnote">映像は画面に表示するだけで、保存・送信はしません。</div>
+    <div class="meterWrap">マイク<div class="meter"><div id="meterBar"></div></div></div>
     <div id="timer">--</div>
     <div id="timerLabel"></div>
+    <div id="clock"></div>
   </div>
+
+  <!-- 右：ログイン → 設定 → 面接 -->
   <div class="panel">
     <div id="login">
-      <p>学校の Google アカウントでログインしてください。</p>
+      <p id="loginMsg">学校の Google アカウントでログインしてください。</p>
       <div id="gbtn"></div>
     </div>
+
+    <div id="setup" class="hidden">
+      <h2>面接の設定</h2>
+      <label>面接の種類<select id="selType"></select></label>
+      <label>大学・学部<select id="selUniv"></select></label>
+      <label>面接時間<select id="selMin"></select></label>
+      <div class="note">
+        左のカメラに自分の顔が映ること、声を出すとマイクのメーターが動くことを確認してください。<br>
+        静かな場所で、できればイヤホンマイクを使ってください。<br>
+        質問が表示されたら、声に出して答えます。答え終わったら「回答終了」を押してください。
+      </div>
+      <div id="devMsg" class="warnmsg"></div>
+      <div id="setupMsg" class="warnmsg"></div>
+      <div class="btns">
+        <button id="startBtn">面接を始める</button>
+        <button id="histBtn" class="dark">自分の記録を見る</button>
+      </div>
+    </div>
+
+    <div id="history" class="hidden">
+      <div class="btns" style="margin:0 0 12px">
+        <button id="histBack" class="dark">戻る</button>
+      </div>
+      <div id="histBody"></div>
+    </div>
+
     <div id="main" class="hidden">
       <div id="chat"></div>
-      <div id="live">（話した内容がここに表示されます）</div>
-      <div class="btns">
-        <button id="startBtn">テストを始める</button>
-        <button id="endBtn" disabled>回答終了</button>
+      <div id="live"></div>
+      <div class="btns" id="btnsInterview">
+        <button id="endBtn" class="dark" disabled>回答終了</button>
+        <button id="stopBtn" class="ghost">面接をやめる</button>
+      </div>
+      <div class="btns hidden" id="btnsDone">
+        <button id="againBtn">もう一度練習する</button>
+        <button id="histBtn2" class="dark">記録を見て振り返る</button>
+        <button id="resendBtn" class="dark hidden">記録を再送</button>
       </div>
     </div>
   </div>
@@ -71,16 +137,44 @@ const CLIENT_ID = '424533235065-ahuls8fikoj9nqkhp782str80vto4vdb.apps.googleuser
 const GAS_URL   = 'https://script.google.com/macros/s/AKfycbwc3PyVg__FZ_MkFMNFg_NcQstmM_vKcndt43WB1v8ZgP8EFB7rRrZwMKEh3cyyu2ywww/exec';
 // ========================
 
-const LIMIT = 60;   // 目安の制限時間（秒）
-const MAX = 90;     // 最大時間（秒）
-const QUESTION = 'テストです。あなたの長所を教えてください。（60秒を目安に話してください）';
-
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const $ = id => document.getElementById(id);
-let idToken = null;
-let stream = null, rec = null, answering = false;
-let t0 = 0, firstSpeech = null, finalText = '', interim = '', timerId = null;
-let cameraStatus = '未確認';
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+let idToken = null, loginAt = 0, cfg = null;
+let stream = null, cameraStatus = '未確認', audioCtx = null;
+
+// 面接中の状態
+let S = null;                       // 面接1回分の情報
+let lists = null, phase = '', stack = [], endReason = null, stopRequested = false, current = null;
+let rec = null, answering = false, t0 = 0, firstSpeech = null, finalText = '', interim = '';
+let ansTimer = null, clockTimer = null;
+
+// 記録の送信待ち
+const pending = [];
+let flushPromise = null;
+
+// ---------- 共通 ----------
+function show(id) { ['login', 'setup', 'main', 'history'].forEach(k => $(k).classList.toggle('hidden', k !== id)); }
+
+/** ログインの有効期限切れならログイン画面に戻す */
+function authCheck(msg) {
+  if (/ログインし直して|ログインしていません/.test(msg)) {
+    idToken = null;
+    $('loginMsg').textContent = 'ログインの有効期限が切れました。もう一度ログインしてください。';
+    show('login');
+    return true;
+  }
+  return false;
+}
+
+/** 要素を作る小さな関数（文字は textContent で入れる） */
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
 
 function addMsg(cls, text) {
   const d = document.createElement('div');
@@ -90,7 +184,11 @@ function addMsg(cls, text) {
   $('chat').scrollTop = $('chat').scrollHeight;
 }
 
-/** Apps Script にデータを送る（text/plain で送るので追加の設定は不要） */
+function fmt(ms) {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+
 async function api(action, data) {
   const res = await fetch(GAS_URL, {
     method: 'POST',
@@ -101,10 +199,6 @@ async function api(action, data) {
 
 // ---------- Google ログイン ----------
 function initLogin() {
-  if (CLIENT_ID.startsWith('ここに') || GAS_URL.startsWith('ここに')) {
-    $('login').innerHTML = '<p>⚠ 設定が未入力です。index.html の CLIENT_ID と GAS_URL を入力してください。</p>';
-    return;
-  }
   if (!(window.google && google.accounts && google.accounts.id)) { setTimeout(initLogin, 100); return; }
   google.accounts.id.initialize({ client_id: CLIENT_ID, callback: onLogin });
   google.accounts.id.renderButton($('gbtn'), { theme: 'outline', size: 'large', text: 'signin_with', locale: 'ja' });
@@ -112,18 +206,31 @@ function initLogin() {
 
 async function onLogin(resp) {
   idToken = resp.credential;
-  $('login').querySelector('p').textContent = 'ログインを確認しています…';
+  loginAt = Date.now();
+  $('loginMsg').textContent = 'ログインを確認しています…';
   try {
-    const r = await api('whoami');
+    const r = await api('config');
     if (!r.ok) throw new Error(r.error);
+    cfg = r;
     $('userBox').textContent = r.name + '（' + r.email + '）';
-    $('login').classList.add('hidden');
-    $('main').classList.remove('hidden');
-    addMsg('sys', '✅ ログインと記録サーバーへの接続を確認しました。「テストを始める」を押してください。');
+    fillSetup();
+    show('setup');
+    setupDevices();
   } catch (e) {
     idToken = null;
-    $('login').querySelector('p').textContent = '⚠ ' + e.message;
+    $('loginMsg').textContent = '⚠ ' + e.message;
   }
+}
+
+function fillSetup() {
+  if ($('selType').options.length) return;   // 2回目以降は選択を残す
+  const add = (sel, value, label) => { const o = document.createElement('option'); o.value = value; o.textContent = label; sel.appendChild(o); };
+  add($('selType'), '', '基本のみ');
+  cfg.types.forEach(t => add($('selType'), t, t));
+  add($('selUniv'), '', '指定しない');
+  cfg.univs.forEach(u => add($('selUniv'), u, u));
+  cfg.minutes.forEach(m => add($('selMin'), m, m + '分'));
+  if (cfg.minutes.indexOf(10) >= 0) $('selMin').value = '10';
 }
 
 window.addEventListener('load', initLogin);
@@ -131,52 +238,147 @@ window.addEventListener('load', initLogin);
 // ---------- カメラ・マイク ----------
 function permHint(name) {
   if (name === 'NotAllowedError' || name === 'not-allowed' || name === 'service-not-allowed')
-    return '\n→ 使用が許可されていません。アドレスバー右のアイコンから許可するか、学校の管理設定で制限されている可能性があります。';
+    return '\n→ 使用が許可されていません。アドレスバー右のアイコンから許可してください。';
   if (name === 'NotFoundError') return '\n→ カメラまたはマイクが見つかりません。';
   if (name === 'NotReadableError') return '\n→ ほかのアプリがカメラ・マイクを使用中の可能性があります。';
+  if (name === 'network') return '\n→ ネットワークを確認してください。';
   return '';
 }
 
 async function setupDevices() {
+  if (stream) return true;
+  $('devMsg').textContent = '';
   try {
     stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     $('cam').srcObject = stream;
     cameraStatus = 'OK';
-    addMsg('sys', '✅ カメラ・マイクの使用許可が取れました。');
-    return true;
   } catch (e) {
-    addMsg('sys', '⚠ カメラ・マイクの起動に失敗：' + e.name + permHint(e.name));
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       cameraStatus = '失敗(' + e.name + ')';
-      addMsg('sys', 'マイクのみで続行します。');
-      return true;
+      $('devMsg').textContent = '⚠ カメラを起動できませんでした（' + e.name + '）。マイクのみで練習できます。';
     } catch (e2) {
       cameraStatus = '失敗(' + e.name + ')';
-      addMsg('sys', '⚠ マイクも起動できません：' + e2.name + permHint(e2.name));
+      $('devMsg').textContent = '⚠ マイクを起動できません：' + e2.name + permHint(e2.name);
       return false;
     }
   }
+  startMeter();
+  return true;
 }
 
-// ---------- 回答 ----------
+function startMeter() {
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = audioCtx.createMediaStreamSource(stream);
+    const an = audioCtx.createAnalyser();
+    an.fftSize = 512;
+    src.connect(an);
+    const buf = new Uint8Array(an.fftSize);
+    const loop = () => {
+      an.getByteTimeDomainData(buf);
+      let s = 0;
+      for (let i = 0; i < buf.length; i++) { const x = (buf[i] - 128) / 128; s += x * x; }
+      $('meterBar').style.width = Math.min(100, Math.sqrt(s / buf.length) * 400) + '%';
+      requestAnimationFrame(loop);
+    };
+    loop();
+  } catch (_) {}
+}
+// ブラウザの仕様で、クリックするまで音量メーターが止まっていることがあるため
+document.addEventListener('click', () => { if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); });
+
+// ---------- 面接の開始 ----------
+function countNodes(list) { return list.reduce((n, x) => n + 1 + countNodes(x.follow), 0); }
+
 $('startBtn').onclick = async () => {
+  $('setupMsg').textContent = '';
+  if (!SR) { $('setupMsg').textContent = '⚠ このブラウザは音声認識に対応していません（Chrome で開いてください）。'; return; }
+  if (!(await setupDevices())) return;
+  const minutes = Number($('selMin').value);
+
+  // ログインの有効期限（約1時間）内に面接が終わるかを確認
+  if ((Date.now() - loginAt) / 60000 + minutes + 5 > 60) {
+    idToken = null;
+    $('loginMsg').textContent = '安全のため、もう一度ログインしてから始めてください。';
+    show('login');
+    return;
+  }
+
   $('startBtn').disabled = true;
-  if (!SR) { addMsg('sys', '⚠ このブラウザは音声認識に対応していません（Chrome で開いてください）。'); return; }
-  if (!stream && !(await setupDevices())) { $('startBtn').disabled = false; return; }
-  addMsg('q', QUESTION);
-  beginAnswer();
+  try {
+    const type = $('selType').value, univ = $('selUniv').value;
+    const r = await api('start', { type: type, univ: univ, minutes: minutes });
+    if (!r.ok) throw new Error(r.error);
+    S = {
+      id: r.sessionId, type: type || '基本のみ', univ: univ, minutes: minutes,
+      order: 0, answered: 0, startAt: Date.now(), endAt: Date.now() + minutes * 60000,
+      reserve: countNodes(r.last) * cfg.limit * 1000
+    };
+    lists = { first: r.first, middle: r.middle, last: r.last };
+    phase = 'first'; stack = []; endReason = null; stopRequested = false;
+
+    $('chat').innerHTML = '';
+    $('live').textContent = '';
+    $('btnsInterview').classList.remove('hidden');
+    $('btnsDone').classList.add('hidden');
+    $('resendBtn').classList.add('hidden');
+    show('main');
+    addMsg('sys', '面接を始めます（' + minutes + '分）。質問が表示されたら、声に出して答えてください。');
+    clockTimer = setInterval(updateClock, 500);
+    updateClock();
+    await sleep(2000);
+    nextQuestion();
+  } catch (e) {
+    if (!authCheck(e.message)) $('setupMsg').textContent = '⚠ ' + e.message;
+  } finally {
+    $('startBtn').disabled = false;
+  }
 };
 
-$('endBtn').onclick = () => finishAnswer('ボタン');
+function updateClock() {
+  if (!S) { $('clock').textContent = ''; return; }
+  const remain = S.endAt - Date.now();
+  $('clock').textContent = remain > 0 ? '面接の残り時間　' + fmt(remain) : '面接の残り時間　0:00';
+}
 
+// ---------- 出題の順番 ----------
+// 最初の質問 → ランダムな質問（深ぼりは親の直後）→ 最後の質問
+// 残り時間が「最後の質問の数 × 目安秒数」を下回ったら、最後の質問に移る
+function nextQuestion() {
+  if (!S) return;
+  if (stopRequested) return endInterview('中断');
+  const remain = S.endAt - Date.now();
+  if (phase !== 'last' && remain < S.reserve) { phase = 'last'; stack = []; endReason = '時間終了'; }
+  if (!stack.length) {
+    for (;;) {
+      if (lists[phase].length) { stack.push(lists[phase].shift()); break; }
+      if (phase === 'first') phase = 'middle';
+      else if (phase === 'middle') { phase = 'last'; if (!endReason) endReason = '質問終了'; }
+      else return endInterview(endReason || '時間終了');
+    }
+  }
+  const node = stack.pop();
+  for (let i = node.follow.length - 1; i >= 0; i--) stack.push(Object.assign({}, node.follow[i], { isFollow: true }));
+  ask(node);
+}
+
+function ask(node) {
+  current = node;
+  S.order++;
+  addMsg('q', node.text);
+  beginAnswer();
+}
+
+// ---------- 回答（音声認識） ----------
 function beginAnswer() {
   answering = true;
   finalText = ''; interim = ''; firstSpeech = null;
   $('live').textContent = '';
   t0 = Date.now();
   startRec();
-  timerId = setInterval(tick, 200);
+  ansTimer = setInterval(tick, 200);
+  tick();
   $('endBtn').disabled = false;
 }
 
@@ -198,7 +400,6 @@ function startRec() {
   rec.onerror = e => {
     if (e.error === 'no-speech' || e.error === 'aborted') return;
     addMsg('sys', '⚠ 音声認識エラー：' + e.error + permHint(e.error));
-    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') finishAnswer('エラー');
   };
   // 無音が続くと認識が自動で止まるので、回答中なら再開する
   rec.onend = () => {
@@ -207,56 +408,268 @@ function startRec() {
       try { startRec(); } catch (_) {}
     }
   };
-  rec.start();
+  try { rec.start(); } catch (_) {}
 }
 
 function tick() {
   const el = (Date.now() - t0) / 1000;
   const t = $('timer');
-  if (el < LIMIT) {
-    t.textContent = Math.ceil(LIMIT - el);
+  if (el < cfg.limit) {
+    t.textContent = Math.ceil(cfg.limit - el);
     t.classList.remove('over');
     $('timerLabel').textContent = firstSpeech === null ? '話し始めてください' : '回答中';
   } else {
-    t.textContent = '+' + Math.floor(el - LIMIT);
+    t.textContent = '+' + Math.floor(el - cfg.limit);
     t.classList.add('over');
-    $('timerLabel').textContent = '目安の時間を過ぎています（' + MAX + '秒で終了）';
+    $('timerLabel').textContent = '目安の時間を過ぎています（' + cfg.max + '秒で終了）';
   }
-  if (el >= MAX) finishAnswer('時間切れ');
+  if (el >= cfg.max) finishAnswer('時間切れ');
 }
+
+function resetTimer() {
+  $('timer').textContent = '--';
+  $('timer').classList.remove('over');
+  $('timerLabel').textContent = '';
+}
+
+$('endBtn').onclick = () => finishAnswer('ボタン');
+
+$('stopBtn').onclick = () => {
+  if (!S) return;
+  if (!confirm('面接を途中で終了しますか？')) return;
+  stopRequested = true;
+  if (answering) finishAnswer('中断');
+};
 
 function finishAnswer(reason) {
   if (!answering) return;
   answering = false;
-  clearInterval(timerId);
+  clearInterval(ansTimer);
   $('endBtn').disabled = true;
-  const elapsed = Math.min(MAX, Math.round((Date.now() - t0) / 100) / 10);
+  const elapsed = Math.min(cfg.max, Math.round((Date.now() - t0) / 100) / 10);
   try { rec.stop(); } catch (_) {}
   // 最後の認識結果が届くのを少し待ってから投稿・記録
-  setTimeout(async () => {
+  setTimeout(() => {
+    if (!S) return;
     const answer = (finalText + interim).trim();
     addMsg('a', answer || '（音声が認識されませんでした）');
     $('live').textContent = '';
-    $('timer').textContent = '--';
-    $('timer').classList.remove('over');
-    $('timerLabel').textContent = '';
-    const data = {
-      question: QUESTION, answer: answer, elapsed: elapsed,
-      over: Math.max(0, Math.round((elapsed - LIMIT) * 10) / 10),
-      firstSpeech: firstSpeech, chars: answer.length,
-      reason: reason, camera: cameraStatus, ua: navigator.userAgent
-    };
-    addMsg('sys', '記録中…');
-    try {
-      const r = await api('save', data);
-      if (!r.ok) throw new Error(r.error);
-      addMsg('sys', '✅ スプレッドシートに記録しました。もう一度試せます。');
-    } catch (e) {
-      addMsg('sys', '⚠ 記録に失敗：' + e.message);
-    }
-    $('startBtn').disabled = false;
+    resetTimer();
+    S.answered++;
+    queueSave({
+      sessionId: S.id, type: S.type, univ: S.univ, minutes: S.minutes,
+      order: S.order, qid: current.id, kind: current.kind, isFollow: !!current.isFollow,
+      question: current.text, answer: answer, elapsed: elapsed,
+      over: Math.max(0, Math.round((elapsed - cfg.limit) * 10) / 10),
+      firstSpeech: firstSpeech, chars: answer.length, reason: reason
+    });
+    if (stopRequested) endInterview('中断');
+    else setTimeout(nextQuestion, cfg.gap * 1000);
   }, 800);
 }
+
+// ---------- 記録の送信（失敗したら再試行） ----------
+function queueSave(data) { pending.push(data); flush(); }
+
+function flush() {
+  if (!flushPromise) flushPromise = doFlush().finally(() => { flushPromise = null; });
+  return flushPromise;
+}
+
+async function doFlush() {
+  while (pending.length) {
+    let ok = false, lastErr = null;
+    for (let i = 0; i < 3 && !ok; i++) {
+      try {
+        const r = await api('save', pending[0]);
+        if (!r.ok) throw new Error(r.error);
+        ok = true;
+      } catch (e) { lastErr = e; await sleep(1500 * (i + 1)); }
+    }
+    if (!ok) {
+      if (S) addMsg('sys', '⚠ 記録の送信に失敗しました（' + (lastErr ? lastErr.message : '') + '）。面接の最後にもう一度送ります。');
+      return;
+    }
+    pending.shift();
+  }
+}
+
+// ---------- 面接の終了 ----------
+async function endInterview(reason) {
+  if (!S) return;
+  const s = S;
+  S = null;
+  answering = false;
+  clearInterval(clockTimer);
+  clearInterval(ansTimer);
+  try { rec && rec.stop(); } catch (_) {}
+  resetTimer();
+  updateClock();
+  $('live').textContent = '';
+  $('btnsInterview').classList.add('hidden');
+  $('btnsDone').classList.remove('hidden');
+
+  addMsg('q', reason === '中断' ? '面接を終了します。' : '以上で面接を終わります。お疲れさまでした。');
+  let note = '回答数：' + s.answered + '問　所要時間：' + fmt(Date.now() - s.startAt);
+  if (reason === '質問終了') note += '\n（用意された質問がすべて終わったため、時間前に終了しました）';
+  addMsg('sys', note);
+
+  await flush();
+  try {
+    await api('end', {
+      sessionId: s.id, reason: reason, answered: s.answered,
+      actual: Math.round((Date.now() - s.startAt) / 6000) / 10
+    });
+  } catch (_) {}
+  showSaveResult();
+}
+
+function showSaveResult() {
+  if (pending.length) {
+    addMsg('sys', '⚠ 記録できていない回答が ' + pending.length + ' 件あります。通信を確認して「記録を再送」を押してください。');
+    $('resendBtn').classList.remove('hidden');
+  } else {
+    addMsg('sys', '✅ すべての回答を記録しました。');
+    $('resendBtn').classList.add('hidden');
+  }
+}
+
+$('resendBtn').onclick = async () => {
+  $('resendBtn').disabled = true;
+  await flush();
+  $('resendBtn').disabled = false;
+  showSaveResult();
+};
+
+$('againBtn').onclick = () => {
+  if (pending.length && !confirm('記録できていない回答があります。このまま設定画面に戻りますか？')) return;
+  show('setup');
+};
+
+// ---------- 自分の記録 ----------
+let hist = [], histView = 'list', histFrom = 'setup';
+
+async function openHistory(from) {
+  histFrom = from;
+  show('history');
+  histView = 'list';
+  $('histBack').textContent = '戻る';
+  const body = $('histBody');
+  body.innerHTML = '';
+  body.appendChild(el('p', 'note', '読み込み中…'));
+  try {
+    const r = await api('history');
+    if (!r.ok) throw new Error(r.error);
+    hist = r.sessions;
+    renderList();
+  } catch (e) {
+    if (authCheck(e.message)) return;
+    body.innerHTML = '';
+    body.appendChild(el('p', 'warnmsg', '⚠ 記録を読み込めませんでした：' + e.message));
+  }
+}
+
+function renderList() {
+  histView = 'list';
+  $('histBack').textContent = '戻る';
+  const body = $('histBody');
+  body.innerHTML = '';
+  body.appendChild(el('h2', null, '自分の記録'));
+  if (!hist.length) { body.appendChild(el('p', 'note', 'まだ記録がありません。')); return; }
+  body.appendChild(el('p', 'note', '面接を選ぶと、質問と自分の回答、先生のコメントが見られます。'));
+  hist.forEach(s => {
+    const item = el('div', 'sesItem');
+    const d = el('div', 'd', s.start);
+    if (s.commented) d.appendChild(el('span', 'badge', '先生のコメントあり'));
+    item.appendChild(d);
+    const info = [s.type, s.univ].filter(Boolean).join('／') + '　' + s.minutes + '分・回答' + s.answered + '問';
+    item.appendChild(el('div', 's', info + (s.reason === '中断' ? '（中断）' : '')));
+    item.onclick = () => renderDetail(s);
+    body.appendChild(item);
+  });
+}
+
+function renderDetail(s) {
+  histView = 'detail';
+  $('histBack').textContent = '一覧に戻る';
+  const body = $('histBody');
+  body.innerHTML = '';
+  body.appendChild(el('h2', null, s.start + 'の面接'));
+  body.appendChild(el('p', 'note',
+    [s.type, s.univ].filter(Boolean).join('／') + '　設定' + s.minutes + '分' +
+    (s.actual !== '' && s.actual != null ? '・実際' + s.actual + '分' : '') + '・回答' + s.answered + '問'));
+
+  if (s.overall) {
+    const c = el('div', 'cmt');
+    c.appendChild(el('b', null, '先生の総評'));
+    c.appendChild(document.createTextNode(s.overall));
+    body.appendChild(c);
+    body.appendChild(el('div', null)).style.height = '12px';
+  }
+
+  s.qa.forEach(x => {
+    const box = el('div', 'qa');
+    const q = el('div', 'qq');
+    if (x.isFollow) q.appendChild(el('span', 'tag', '深ぼり'));
+    q.appendChild(document.createTextNode('Q. ' + x.question));
+    box.appendChild(q);
+    box.appendChild(el('div', 'aa', x.answer || '（音声が認識されませんでした）'));
+
+    const mt = el('div', 'mt');
+    mt.appendChild(document.createTextNode('回答 ' + x.elapsed + '秒'));
+    if (Number(x.over) > 0) { mt.appendChild(document.createTextNode('　')); mt.appendChild(el('span', 'ov', '超過 ' + x.over + '秒')); }
+    mt.appendChild(document.createTextNode(
+      '　話し始めまで ' + (x.firstSpeech === '' || x.firstSpeech == null ? '―' : x.firstSpeech + '秒') +
+      '　' + x.chars + '文字'));
+    box.appendChild(mt);
+
+    if (x.comment) {
+      const c = el('div', 'cmt');
+      c.appendChild(el('b', null, '先生のコメント'));
+      c.appendChild(document.createTextNode(x.comment));
+      box.appendChild(c);
+    }
+
+    const ta = el('textarea');
+    ta.placeholder = '振り返り（次はこう答える、足りなかったこと など）';
+    ta.maxLength = 1000;
+    ta.value = x.reflection || '';
+    box.appendChild(ta);
+    const row = el('div', 'rfRow');
+    const btn = el('button', null, '保存');
+    const st = el('span', null, x.reflection ? '保存済み' : '');
+    ta.oninput = () => { st.textContent = ta.value === (x.reflection || '') ? (x.reflection ? '保存済み' : '') : '未保存'; };
+    btn.onclick = async () => {
+      btn.disabled = true; st.textContent = '保存中…';
+      try {
+        const r = await api('reflect', { sessionId: s.id, order: x.order, text: ta.value });
+        if (!r.ok) throw new Error(r.error);
+        x.reflection = ta.value;
+        st.textContent = '保存しました';
+      } catch (e) {
+        if (authCheck(e.message)) return;
+        st.textContent = '⚠ ' + e.message;
+      } finally { btn.disabled = false; }
+    };
+    row.appendChild(btn); row.appendChild(st);
+    box.appendChild(row);
+    body.appendChild(box);
+  });
+  body.scrollTop = 0;
+}
+
+$('histBtn').onclick = () => openHistory('setup');
+$('histBtn2').onclick = () => {
+  if (pending.length && !confirm('記録できていない回答があります。このまま記録を開きますか？')) return;
+  openHistory('main');
+};
+$('histBack').onclick = () => {
+  if (histView === 'detail') { renderList(); return; }
+  show(histFrom === 'main' ? 'setup' : histFrom);
+};
+
+// 面接中にページを閉じようとしたら確認する
+window.addEventListener('beforeunload', e => { if (S) { e.preventDefault(); e.returnValue = ''; } });
 </script>
 </body>
 </html>
