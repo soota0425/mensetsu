@@ -38,6 +38,23 @@
   .a { background:var(--a); align-self:flex-end; }
   .sys { background:var(--sys); align-self:center; font-size:13px; max-width:100%; }
   #live { min-height:3em; margin-top:8px; padding:8px; border:1px dashed #bbb; border-radius:8px; color:var(--sub); }
+  #live.on:empty::before { content:'答え終わったら「以上です」と言うか、「回答終了」を押してください'; color:#aaa; font-size:13px; }
+  #live .hint { display:block; color:var(--warn); font-size:13px; margin-top:4px; }
+  .srTest { margin:8px 0; padding:10px; border:1px solid #e3e5ea; border-radius:8px; background:#fafbfc; }
+  .srTest button { flex:0 0 auto; padding:8px 14px; font-size:14px; }
+  .readRow { display:flex; align-items:center; gap:8px; font-size:14px; margin:4px 0 12px; }
+  .readRow input { width:18px; height:18px; }
+  .tabs { display:flex; gap:6px; margin:0 0 10px; }
+  .tab { flex:0 0 auto; padding:6px 16px; font-size:14px; background:#fff; color:var(--accent); border:1px solid var(--accent); border-radius:16px; }
+  .tab.on { background:var(--accent); color:#fff; }
+  .cmpBtn { margin-top:8px; padding:6px 12px; font-size:13px; background:#fff; color:var(--accent); border:1px solid var(--accent); }
+  .cmp { margin-top:8px; border-left:3px solid #c9d4f5; padding-left:10px; }
+  .cmpItem { margin-bottom:10px; }
+  .cmpItem .cd { font-size:12px; color:var(--sub); }
+  .cmpItem .ca { margin-top:2px; padding:6px 8px; background:#f2f4f7; border-radius:6px; line-height:1.6; white-space:pre-wrap; }
+  .rfShow { margin-top:8px; padding:6px 10px; background:#eef6ff; border-radius:6px; font-size:14px; white-space:pre-wrap; }
+  .rfShow b { display:block; font-size:12px; color:var(--accent); }
+  #srTestOut { margin-top:8px; font-size:14px; line-height:1.6; white-space:pre-wrap; min-height:1.2em; }
   .btns { display:flex; gap:8px; margin-top:10px; }
   button { flex:1; padding:12px; font-size:16px; border:none; border-radius:8px; cursor:pointer; background:var(--accent); color:#fff; }
   button:disabled { background:#bbb; cursor:default; }
@@ -95,10 +112,15 @@
       <label>面接の種類<select id="selType"></select></label>
       <label>大学・学部<select id="selUniv"></select></label>
       <label>面接時間<select id="selMin"></select></label>
+      <label class="readRow"><input type="checkbox" id="chkRead" checked>質問を音声で読み上げる（読み終わってから回答の時間を計り始めます）</label>
       <div class="note">
         左のカメラに自分の顔が映ること、声を出すとマイクのメーターが動くことを確認してください。<br>
         静かな場所で、できればイヤホンマイクを使ってください。<br>
-        質問が表示されたら、声に出して答えます。答え終わったら「回答終了」を押してください。
+        質問が表示されたら、声に出して答えます。答え終わったら「<b>以上です</b>」と言うと次の質問に進みます（「回答終了」ボタンでも進めます）。
+      </div>
+      <div class="srTest">
+        <button id="srTestBtn" class="dark">文字起こしのテスト</button>
+        <div id="srTestOut">面接の前に、話した言葉が文字になるかを確かめられます。</div>
       </div>
       <div id="devMsg" class="warnmsg"></div>
       <div id="setupMsg" class="warnmsg"></div>
@@ -148,6 +170,10 @@ let stream = null, cameraStatus = '未確認', audioCtx = null;
 let S = null;                       // 面接1回分の情報
 let lists = null, phase = '', stack = [], endReason = null, stopRequested = false, current = null;
 let rec = null, answering = false, t0 = 0, firstSpeech = null, finalText = '', interim = '';
+let micLevel = 0, voicedMs = 0, recFatal = false, recErrShown = false, endTimer = null, hintShown = false;
+// 文末がこの言葉で終わったら、回答を終えて次の質問へ進む（「異常です」は聞き間違い対策）
+const END_RE = /(以上です|以上になります|以上でございます|異常です)[。．.、!！?？\s]*$/;
+const MIC_ON = 0.03;   // 「声が出ている」とみなす音量
 let ansTimer = null, clockTimer = null;
 
 // 記録の送信待ち
@@ -241,7 +267,8 @@ function permHint(name) {
     return '\n→ 使用が許可されていません。アドレスバー右のアイコンから許可してください。';
   if (name === 'NotFoundError') return '\n→ カメラまたはマイクが見つかりません。';
   if (name === 'NotReadableError') return '\n→ ほかのアプリがカメラ・マイクを使用中の可能性があります。';
-  if (name === 'network') return '\n→ ネットワークを確認してください。';
+  if (name === 'network') return '\n→ 文字起こしはインターネット経由で行います。接続を確認してください。学校のWi-Fiだけで起きる場合は、フィルタで止められている可能性があります。';
+  if (name === 'audio-capture') return '\n→ マイクが使えません。接続や、ほかのアプリが使っていないかを確認してください。';
   return '';
 }
 
@@ -279,7 +306,8 @@ function startMeter() {
       an.getByteTimeDomainData(buf);
       let s = 0;
       for (let i = 0; i < buf.length; i++) { const x = (buf[i] - 128) / 128; s += x * x; }
-      $('meterBar').style.width = Math.min(100, Math.sqrt(s / buf.length) * 400) + '%';
+      micLevel = Math.sqrt(s / buf.length);
+      $('meterBar').style.width = Math.min(100, micLevel * 400) + '%';
       requestAnimationFrame(loop);
     };
     loop();
@@ -288,11 +316,100 @@ function startMeter() {
 // ブラウザの仕様で、クリックするまで音量メーターが止まっていることがあるため
 document.addEventListener('click', () => { if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); });
 
+// ---------- 文字起こしのテスト ----------
+let testRec = null;
+
+$('srTestBtn').onclick = async () => {
+  const out = $('srTestOut'), btn = $('srTestBtn');
+  if (testRec) { try { testRec.stop(); } catch (_) {} return; }
+  if (!SR) { out.textContent = '⚠ このブラウザは文字起こしに対応していません。Chrome で開いてください。'; return; }
+  if (!(await setupDevices())) { out.textContent = '⚠ マイクを起動できません。上のメッセージを確認してください。'; return; }
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+
+  let text = '', got = false, err = null, voiced = 0;
+  const r = new SR();
+  testRec = r;
+  r.lang = 'ja-JP'; r.continuous = true; r.interimResults = true;
+  const iv = setInterval(() => { if (micLevel > MIC_ON) voiced += 200; }, 200);
+  const stopTimer = setTimeout(() => { try { r.stop(); } catch (_) {} }, 10000);
+
+  r.onresult = e => {
+    got = true;
+    let fin = '', mid = '';
+    for (let i = 0; i < e.results.length; i++) {
+      if (e.results[i].isFinal) fin += e.results[i][0].transcript; else mid += e.results[i][0].transcript;
+    }
+    text = fin + mid;
+    out.textContent = '認識結果：' + text;
+  };
+  r.onerror = e => { if (e.error !== 'no-speech' && e.error !== 'aborted') err = e.error; };
+  r.onend = () => {
+    clearInterval(iv); clearTimeout(stopTimer);
+    testRec = null;
+    btn.textContent = '文字起こしのテスト';
+    if (err) {
+      out.textContent = '⚠ 文字起こしのエラー：' + err + permHint(err);
+    } else if (got) {
+      out.textContent = '✅ 文字起こしできています。\n認識結果：' + text +
+        (END_RE.test(text.trim()) ? '\n（「以上です」も聞き取れています）' : '');
+    } else if (voiced >= 1000) {
+      out.textContent = '⚠ 声はマイクに届いていますが、文字になりませんでした。\n' +
+        '・アドレスバー右のカメラ・マイクのアイコンから、使うマイクを選び直す\n' +
+        '・インターネットにつながっているか確認する\n' +
+        '・ページを再読み込みするか、Chrome を開き直す';
+    } else {
+      out.textContent = '⚠ マイクに声が届いていません。\n' +
+        '・マイクのミュート、接続、音量を確認する\n' +
+        '・アドレスバー右のカメラ・マイクのアイコンから、使うマイクを選び直す\n' +
+        '・もう少し大きな声で、マイクの近くで話す';
+    }
+  };
+  try {
+    r.start();
+    btn.textContent = 'テストを終える';
+    out.textContent = '話してください（10秒で自動的に終わります）。例：「よろしくお願いします。以上です」';
+  } catch (e) {
+    clearInterval(iv); clearTimeout(stopTimer); testRec = null;
+    out.textContent = '⚠ 文字起こしを開始できませんでした：' + e.message;
+  }
+};
+
+// ---------- 質問の読み上げ ----------
+const TTS = 'speechSynthesis' in window;
+let ttsVoice = null, reading = false;
+function pickVoice() {
+  const vs = speechSynthesis.getVoices().filter(v => /^ja/i.test(v.lang));
+  ttsVoice = vs.find(v => /Google/.test(v.name)) || vs[0] || null;
+}
+if (TTS) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
+try { const v = localStorage.getItem('mensetsu_read'); if (v !== null) $('chkRead').checked = v === '1'; } catch (_) {}
+$('chkRead').onchange = () => { try { localStorage.setItem('mensetsu_read', $('chkRead').checked ? '1' : '0'); } catch (_) {} };
+if (!TTS) { $('chkRead').checked = false; $('chkRead').disabled = true; }
+
+/** 読み上げが終わったら resolve する（終わりの合図が来ないときに備えて時間切れも設ける） */
+function speak(text) {
+  return new Promise(resolve => {
+    if (!TTS || !$('chkRead').checked) return resolve();
+    try { speechSynthesis.cancel(); } catch (_) {}
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'ja-JP';
+    if (ttsVoice) u.voice = ttsVoice;
+    u.rate = 1.0;
+    let done = false;
+    const fin = () => { if (done) return; done = true; clearTimeout(to); resolve(); };
+    const to = setTimeout(fin, 3000 + text.length * 250);
+    u.onend = fin; u.onerror = fin;
+    try { speechSynthesis.speak(u); } catch (_) { fin(); }   // 読み上げに失敗しても面接は続ける
+  });
+}
+function stopSpeak() { if (TTS) { try { speechSynthesis.cancel(); } catch (_) {} } }
+
 // ---------- 面接の開始 ----------
 function countNodes(list) { return list.reduce((n, x) => n + 1 + countNodes(x.follow), 0); }
 
 $('startBtn').onclick = async () => {
   $('setupMsg').textContent = '';
+  if (testRec) { try { testRec.abort(); } catch (_) {} testRec = null; }
   if (!SR) { $('setupMsg').textContent = '⚠ このブラウザは音声認識に対応していません（Chrome で開いてください）。'; return; }
   if (!(await setupDevices())) return;
   const minutes = Number($('selMin').value);
@@ -363,10 +480,20 @@ function nextQuestion() {
   ask(node);
 }
 
-function ask(node) {
+async function ask(node) {
   current = node;
   S.order++;
   addMsg('q', node.text);
+  if (TTS && $('chkRead').checked) {
+    reading = true;
+    $('endBtn').disabled = true;
+    $('timer').textContent = '--';
+    $('timerLabel').textContent = '質問を読み上げています…';
+    await speak(node.text);
+    reading = false;
+  }
+  if (!S) return;
+  if (stopRequested) return endInterview('中断');
   beginAnswer();
 }
 
@@ -374,7 +501,10 @@ function ask(node) {
 function beginAnswer() {
   answering = true;
   finalText = ''; interim = ''; firstSpeech = null;
+  voicedMs = 0; recFatal = false; recErrShown = false; hintShown = false;
+  clearTimeout(endTimer); endTimer = null;
   $('live').textContent = '';
+  $('live').classList.add('on');
   t0 = Date.now();
   startRec();
   ansTimer = setInterval(tick, 200);
@@ -396,23 +526,51 @@ function startRec() {
       else interim += r[0].transcript;
     }
     $('live').textContent = finalText + interim;
+    checkEndPhrase();
   };
   rec.onerror = e => {
     if (e.error === 'no-speech' || e.error === 'aborted') return;
-    addMsg('sys', '⚠ 音声認識エラー：' + e.error + permHint(e.error));
+    if (['not-allowed', 'service-not-allowed', 'audio-capture'].indexOf(e.error) >= 0) recFatal = true;
+    if (!recErrShown) {   // 同じ回答の中で何度も出さない
+      recErrShown = true;
+      addMsg('sys', '⚠ 文字起こしのエラー：' + e.error + permHint(e.error) +
+        '\n回答はそのまま続けられます。終わったら「回答終了」を押してください。');
+    }
   };
-  // 無音が続くと認識が自動で止まるので、回答中なら再開する
+  // 無音が続くと認識が自動で止まるので、回答中なら少し待って再開する
   rec.onend = () => {
-    if (answering) {
+    if (answering && !recFatal) {
       finalText += interim; interim = '';
-      try { startRec(); } catch (_) {}
+      setTimeout(() => { if (answering) { try { startRec(); } catch (_) {} } }, 250);
     }
   };
   try { rec.start(); } catch (_) {}
 }
 
+/** 文末が「以上です」になったら、0.7秒たっても変わらないことを確かめてから次へ */
+function checkEndPhrase() {
+  const hit = answering && END_RE.test((finalText + interim).trim());
+  if (hit && !endTimer) {
+    endTimer = setTimeout(() => {
+      endTimer = null;
+      if (answering && END_RE.test((finalText + interim).trim())) finishAnswer('以上です');
+    }, 700);
+  } else if (!hit && endTimer) {
+    clearTimeout(endTimer); endTimer = null;
+  }
+}
+
 function tick() {
   const el = (Date.now() - t0) / 1000;
+  // 声は出ているのに文字にならないときは、その場で知らせる
+  if (micLevel > MIC_ON) voicedMs += 200;
+  if (!hintShown && firstSpeech === null && voicedMs >= 4000) {
+    hintShown = true;
+    const h = document.createElement('span');
+    h.className = 'hint';
+    h.textContent = '声はマイクに届いていますが、文字になっていません。このまま答え続けて「回答終了」を押し、面接のあとで設定画面の「文字起こしのテスト」を試してください。';
+    $('live').appendChild(h);
+  }
   const t = $('timer');
   if (el < cfg.limit) {
     t.textContent = Math.ceil(cfg.limit - el);
@@ -439,19 +597,23 @@ $('stopBtn').onclick = () => {
   if (!confirm('面接を途中で終了しますか？')) return;
   stopRequested = true;
   if (answering) finishAnswer('中断');
+  else if (reading) stopSpeak();
 };
 
 function finishAnswer(reason) {
   if (!answering) return;
   answering = false;
   clearInterval(ansTimer);
+  clearTimeout(endTimer); endTimer = null;
+  $('live').classList.remove('on');
   $('endBtn').disabled = true;
   const elapsed = Math.min(cfg.max, Math.round((Date.now() - t0) / 100) / 10);
   try { rec.stop(); } catch (_) {}
   // 最後の認識結果が届くのを少し待ってから投稿・記録
   setTimeout(() => {
     if (!S) return;
-    const answer = (finalText + interim).trim();
+    let answer = (finalText + interim).trim();
+    if (reason === '以上です') answer = answer.replace(END_RE, '').trim();
     addMsg('a', answer || '（音声が認識されませんでした）');
     $('live').textContent = '';
     resetTimer();
@@ -461,7 +623,8 @@ function finishAnswer(reason) {
       order: S.order, qid: current.id, kind: current.kind, isFollow: !!current.isFollow,
       question: current.text, answer: answer, elapsed: elapsed,
       over: Math.max(0, Math.round((elapsed - cfg.limit) * 10) / 10),
-      firstSpeech: firstSpeech, chars: answer.length, reason: reason
+      firstSpeech: firstSpeech, chars: answer.length, reason: reason,
+      speed: speedOf({ chars: answer.length, elapsed: elapsed, firstSpeech: firstSpeech, reason: reason })
     });
     if (stopRequested) endInterview('中断');
     else setTimeout(nextQuestion, cfg.gap * 1000);
@@ -503,13 +666,16 @@ async function endInterview(reason) {
   clearInterval(clockTimer);
   clearInterval(ansTimer);
   try { rec && rec.stop(); } catch (_) {}
+  stopSpeak();
   resetTimer();
   updateClock();
   $('live').textContent = '';
   $('btnsInterview').classList.add('hidden');
   $('btnsDone').classList.remove('hidden');
 
-  addMsg('q', reason === '中断' ? '面接を終了します。' : '以上で面接を終わります。お疲れさまでした。');
+  const bye = reason === '中断' ? '面接を終了します。' : '以上で面接を終わります。お疲れさまでした。';
+  addMsg('q', bye);
+  if (reason !== '中断') speak(bye);
   let note = '回答数：' + s.answered + '問　所要時間：' + fmt(Date.now() - s.startAt);
   if (reason === '質問終了') note += '\n（用意された質問がすべて終わったため、時間前に終了しました）';
   addMsg('sys', note);
@@ -547,7 +713,41 @@ $('againBtn').onclick = () => {
 };
 
 // ---------- 自分の記録 ----------
-let hist = [], histView = 'list', histFrom = 'setup';
+let hist = [], histView = 'list', histFrom = 'setup', histMode = 'session', qIndex = {};
+const SPEED_NOTE = '話す速さの目安は1分間に300字前後です。文字起こしには「えー」「あの」などが入らないため、実際より少し少なめに出ます。';
+
+/** 話す速さ（字/分）。話し始めから話し終わりまでの時間で割る。短すぎる回答は出さない */
+function speedOf(x) {
+  if (x.speed !== '' && x.speed != null && !isNaN(Number(x.speed))) return Number(x.speed);
+  const c = Number(x.chars);
+  if (!c || x.firstSpeech === '' || x.firstSpeech == null) return null;
+  const d = Number(x.elapsed) - Number(x.firstSpeech) - (x.reason === '以上です' ? 0.7 : 0);
+  return d >= 3 ? Math.round(c / d * 60) : null;
+}
+function speedText(v) {
+  if (v == null) return '―';
+  return v + '字/分' + (v >= 380 ? '（速め）' : v <= 220 ? '（ゆっくり）' : '');
+}
+
+/** 回答秒数・超過・話し始め・文字数・速さの1行 */
+function metaEl(x) {
+  const mt = el('div', 'mt');
+  mt.appendChild(document.createTextNode('回答 ' + x.elapsed + '秒'));
+  if (Number(x.over) > 0) { mt.appendChild(document.createTextNode('　')); mt.appendChild(el('span', 'ov', '超過 ' + x.over + '秒')); }
+  mt.appendChild(document.createTextNode(
+    '　話し始めまで ' + (x.firstSpeech === '' || x.firstSpeech == null ? '―' : x.firstSpeech + '秒') +
+    '　' + x.chars + '文字　速さ ' + speedText(speedOf(x))));
+  return mt;
+}
+
+/** 質問ID（なければ質問文）ごとに、回答を古い順に集める */
+function buildIndex() {
+  qIndex = {};
+  hist.slice().reverse().forEach(s => s.qa.forEach(x => {
+    const k = x.qid || x.question;
+    (qIndex[k] = qIndex[k] || []).push({ sid: s.id, start: s.start, x: x });
+  }));
+}
 
 async function openHistory(from) {
   histFrom = from;
@@ -561,6 +761,7 @@ async function openHistory(from) {
     const r = await api('history');
     if (!r.ok) throw new Error(r.error);
     hist = r.sessions;
+    buildIndex();
     renderList();
   } catch (e) {
     if (authCheck(e.message)) return;
@@ -575,7 +776,16 @@ function renderList() {
   const body = $('histBody');
   body.innerHTML = '';
   body.appendChild(el('h2', null, '自分の記録'));
+  const tabs = el('div', 'tabs');
+  [['session', '面接ごと'], ['question', '質問ごと']].forEach(t => {
+    const b = el('button', 'tab' + (histMode === t[0] ? ' on' : ''), t[1]);
+    b.onclick = () => { histMode = t[0]; renderList(); };
+    tabs.appendChild(b);
+  });
+  body.appendChild(tabs);
   if (!hist.length) { body.appendChild(el('p', 'note', 'まだ記録がありません。')); return; }
+  if (histMode === 'question') return renderQList(body);
+
   body.appendChild(el('p', 'note', '面接を選ぶと、質問と自分の回答、先生のコメントが見られます。'));
   hist.forEach(s => {
     const item = el('div', 'sesItem');
@@ -589,6 +799,53 @@ function renderList() {
   });
 }
 
+function renderQList(body) {
+  body.appendChild(el('p', 'note', '質問を選ぶと、その質問への自分の回答を古い順に並べて見られます。何度も答えた質問ほど上に出ます。'));
+  const keys = Object.keys(qIndex).sort((a, b) =>
+    qIndex[b].length - qIndex[a].length ||
+    (qIndex[b][qIndex[b].length - 1].start > qIndex[a][qIndex[a].length - 1].start ? 1 : -1));
+  keys.forEach(k => {
+    const arr = qIndex[k], last = arr[arr.length - 1];
+    const item = el('div', 'sesItem');
+    const d = el('div', 'd', last.x.question);
+    if (arr.some(o => o.x.comment)) d.appendChild(el('span', 'badge', '先生のコメントあり'));
+    item.appendChild(d);
+    item.appendChild(el('div', 's', '回答 ' + arr.length + '回　最新 ' + last.start));
+    item.onclick = () => renderQDetail(k);
+    body.appendChild(item);
+  });
+}
+
+function renderQDetail(k) {
+  histView = 'qdetail';
+  $('histBack').textContent = '一覧に戻る';
+  const arr = qIndex[k];
+  const body = $('histBody');
+  body.innerHTML = '';
+  body.appendChild(el('h2', null, 'Q. ' + arr[arr.length - 1].x.question));
+  body.appendChild(el('p', 'note', 'この質問への回答 ' + arr.length + '回（古い順）。' + SPEED_NOTE));
+  arr.forEach((o, i) => {
+    const box = el('div', 'qa');
+    box.appendChild(el('div', 'qq', (i + 1) + '回目　' + o.start));
+    box.appendChild(el('div', 'aa', o.x.answer || '（音声が認識されませんでした）'));
+    box.appendChild(metaEl(o.x));
+    if (o.x.comment) {
+      const c = el('div', 'cmt');
+      c.appendChild(el('b', null, '先生のコメント'));
+      c.appendChild(document.createTextNode(o.x.comment));
+      box.appendChild(c);
+    }
+    if (o.x.reflection) {
+      const r = el('div', 'rfShow');
+      r.appendChild(el('b', null, '自分の振り返り'));
+      r.appendChild(document.createTextNode(o.x.reflection));
+      box.appendChild(r);
+    }
+    body.appendChild(box);
+  });
+  body.scrollTop = 0;
+}
+
 function renderDetail(s) {
   histView = 'detail';
   $('histBack').textContent = '一覧に戻る';
@@ -598,6 +855,7 @@ function renderDetail(s) {
   body.appendChild(el('p', 'note',
     [s.type, s.univ].filter(Boolean).join('／') + '　設定' + s.minutes + '分' +
     (s.actual !== '' && s.actual != null ? '・実際' + s.actual + '分' : '') + '・回答' + s.answered + '問'));
+  body.appendChild(el('p', 'note', SPEED_NOTE));
 
   if (s.overall) {
     const c = el('div', 'cmt');
@@ -614,20 +872,34 @@ function renderDetail(s) {
     q.appendChild(document.createTextNode('Q. ' + x.question));
     box.appendChild(q);
     box.appendChild(el('div', 'aa', x.answer || '（音声が認識されませんでした）'));
-
-    const mt = el('div', 'mt');
-    mt.appendChild(document.createTextNode('回答 ' + x.elapsed + '秒'));
-    if (Number(x.over) > 0) { mt.appendChild(document.createTextNode('　')); mt.appendChild(el('span', 'ov', '超過 ' + x.over + '秒')); }
-    mt.appendChild(document.createTextNode(
-      '　話し始めまで ' + (x.firstSpeech === '' || x.firstSpeech == null ? '―' : x.firstSpeech + '秒') +
-      '　' + x.chars + '文字'));
-    box.appendChild(mt);
+    box.appendChild(metaEl(x));
 
     if (x.comment) {
       const c = el('div', 'cmt');
       c.appendChild(el('b', null, '先生のコメント'));
       c.appendChild(document.createTextNode(x.comment));
       box.appendChild(c);
+    }
+
+    // 同じ質問へのほかの回（古い順）
+    const others = (qIndex[x.qid || x.question] || []).filter(o => !(o.sid === s.id && o.x.order === x.order));
+    if (others.length) {
+      const label = '同じ質問へのほかの回答（' + others.length + '件）';
+      const tg = el('button', 'cmpBtn', label + 'を見る');
+      const wrap = el('div', 'cmp hidden');
+      others.forEach(o => {
+        const c = el('div', 'cmpItem');
+        c.appendChild(el('div', 'cd', o.start + (o.start < s.start ? '（前の回）' : '（後の回）')));
+        c.appendChild(el('div', 'ca', o.x.answer || '（音声が認識されませんでした）'));
+        c.appendChild(metaEl(o.x));
+        wrap.appendChild(c);
+      });
+      tg.onclick = () => {
+        const open = wrap.classList.toggle('hidden') === false;
+        tg.textContent = label + (open ? 'を閉じる' : 'を見る');
+      };
+      box.appendChild(tg);
+      box.appendChild(wrap);
     }
 
     const ta = el('textarea');
@@ -664,7 +936,7 @@ $('histBtn2').onclick = () => {
   openHistory('main');
 };
 $('histBack').onclick = () => {
-  if (histView === 'detail') { renderList(); return; }
+  if (histView === 'detail' || histView === 'qdetail') { renderList(); return; }
   show(histFrom === 'main' ? 'setup' : histFrom);
 };
 
